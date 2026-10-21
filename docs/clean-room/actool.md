@@ -93,7 +93,7 @@ document's default appearance flat (the fill, then each group's layers back
 to front with a blurred, downward-offset shadow of the group's opacity, no
 glass, specular or translucency; SVG layers through resvg, PNG layers
 scaled about the centre) and compiles that image exactly as an icon set's
-1024 px image, named `NAME1024x1024.png`. The result has the renditions
-iOS before 26 draws the icon from; iOS 26 draws it as it draws an icon
-set's, without glass. Xcode's flattened image is square and opaque, as this
+1024 px image, named `NAME1024x1024.png`. The result has the renditions an
+icon set gives, which iOS before 26 draws icons from; how iOS 26 draws it
+(presumably as an icon set's, without glass) has not been checked. Xcode's flattened image is square and opaque, as this
 one is.
