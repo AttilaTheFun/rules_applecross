@@ -333,6 +333,7 @@ _RULE_INPUT_FILES = [
     "stubs/noop_tool.sh",
     "stubs/security.sh",
     "stubs/strip.sh",
+    "stubs/sw_vers.sh",
     "stubs/xcstringstool.py",
     "stubs/xcstringstool.sh",
     "stubs/zip.py",
@@ -346,10 +347,40 @@ _LLVM_PREBUILT = {
     "x86_64": "@llvm_prebuilt//:bin/clang",
 }
 
+# The same LLVM release built for macOS, for compiles and links that run on a
+# Mac (the macOS execution platform's C/C++ toolchains) so that their output
+# matches Linux's byte for byte.
+_LLVM_PREBUILT_MACOS = "@llvm_prebuilt_macos//:bin/clang"
+
+# Apple tool names for LLVM's, in a toolchain bin directory.
+_LLVM_TOOL_ALIASES = {
+    "install_name_tool": "llvm-install-name-tool",
+    "lipo": "llvm-lipo",
+    "ar": "llvm-ar",
+    "ranlib": "llvm-ranlib",
+    "otool": "llvm-otool",
+    "nm": "llvm-nm",
+    "objdump": "llvm-objdump",
+}
+
+def _stage_macos_llvm(rctx):
+    """Stages macOS LLVM at macos_toolchain/usr on a macOS host."""
+    clang = rctx.path(Label(_LLVM_PREBUILT_MACOS))
+    root = clang.dirname.dirname
+    result = rctx.execute(["bash", "-c", "mkdir -p macos_toolchain/usr && cp -a '{0}/bin' '{0}/lib' macos_toolchain/usr/".format(root)])
+    if result.return_code != 0:
+        fail("Failed to stage macOS LLVM: " + result.stderr)
+    for apple_name, llvm_name in _LLVM_TOOL_ALIASES.items():
+        rctx.execute(["ln", "-sf", llvm_name, "macos_toolchain/usr/bin/" + apple_name])
+    # llvm-strip -S -T crashes on macOS too; split it as on Linux.
+    _install_executable(rctx, "stubs/strip.sh", "macos_toolchain/usr/bin/strip")
+
 def _prefetch_rule_inputs(rctx, cpu):
     for f in _RULE_INPUT_FILES:
         _toolchain_path(rctx, f)
     rctx.path(Label(_LLVM_PREBUILT[cpu]))
+    if rctx.os.name.startswith("mac"):
+        rctx.path(Label(_LLVM_PREBUILT_MACOS))
 
 def _use_local_xcode(rctx):
     """Decides whether to read this host's Xcode or unpack an archive."""
@@ -403,10 +434,9 @@ def _install_ported_tools(rctx, cpu, destination):
     """Unpacks the Linux-hosted Apple tools for one execution CPU."""
     archive = rctx.attr.ported_tools_archives.get(cpu)
     if archive:
-        rctx.extract(
-            archive = rctx.workspace_root.get_child(archive),
-            output = destination,
-        )
+        path = rctx.workspace_root.get_child(archive)
+        rctx.watch(path)
+        rctx.extract(archive = path, output = destination)
         return
     if cpu not in _PORTED_TOOLS:
         fail(
@@ -518,24 +548,18 @@ def _apple_cross_toolchain_impl(rctx):
             fail("The Apple SDK tree is missing the {} SDK".format(_sdk_name))
         substitutions["%{" + _os_name + "_sdk_version}"] = _sdk_version
 
+    if rctx.os.name.startswith("mac"):
+        _stage_macos_llvm(rctx)
+
     rctx.template("BUILD", build_tpl, substitutions)
 
     # Create Apple-compatible symlinks for LLVM tools so that actions can
     # invoke them by their traditional Apple names. Done AFTER all extractions
     # so that symlinks don't interfere with tarball extraction.
-    _llvm_symlinks = {
-        # NOTE: "libtool" is intentionally omitted — the llvm multicall binary
-        # doesn't recognize "libtool" as a subcommand (only "libtool-darwin").
-        # The libtool wrapper (libtool.cc) handles this instead.
-        "install_name_tool": "llvm-install-name-tool",
-        "lipo": "llvm-lipo",
-        "ar": "llvm-ar",
-        "ranlib": "llvm-ranlib",
-        "otool": "llvm-otool",
-        "nm": "llvm-nm",
-        "objdump": "llvm-objdump",
-    }
-    for apple_name, llvm_name in _llvm_symlinks.items():
+    # NOTE: "libtool" is intentionally not aliased -- the llvm multicall binary
+    # doesn't recognize "libtool" as a subcommand (only "libtool-darwin"). The
+    # libtool wrapper (libtool.cc) handles this instead.
+    for apple_name, llvm_name in _LLVM_TOOL_ALIASES.items():
         target = xcode_toolchain_bindir + llvm_name
         link = xcode_toolchain_bindir + apple_name
         result = rctx.execute(["test", "-e", target])
@@ -582,13 +606,29 @@ def _apple_cross_toolchain_impl(rctx):
         _install_executable(rctx, "stubs/zip.py", _zip_path + ".py")
 
     # Create codesign/codesign_allocate stubs for Linux cross-compilation.
-    # Always overwrite — the SDK may ship real binaries (e.g. codesign_allocate
-    # from LLVM) that fail on Linux with "unable to find any toolchains".
+    # Overwrite whatever is there -- the SDK may ship real binaries (e.g.
+    # codesign_allocate from LLVM) that fail on Linux with "unable to find any
+    # toolchains" -- unless the ported tools carry this repository's
+    # clean-room codesign (tools/apple_tools), which signs and allocates the
+    # signature itself.
     _codesign_path = xcode_toolchain_bindir + "codesign"
-    _install_executable(rctx, "stubs/noop_tool.sh", _codesign_path)
+    if not rctx.path(xcode_toolchain_bindir + ".apple-tools-revision").exists:
+        _install_executable(rctx, "stubs/noop_tool.sh", _codesign_path)
 
     _codesign_allocate_path = xcode_toolchain_bindir + "codesign_allocate"
     _install_executable(rctx, "stubs/noop_tool.sh", _codesign_allocate_path)
+
+    # Report a chosen macOS build as the build machine's, for builds that must
+    # match one made on that Mac.
+    _build_machine = rctx.os.environ.get("RULES_APPLECROSS_BUILD_MACHINE_OS_BUILD", "").strip()
+    if _build_machine and not rctx.os.name.startswith("mac"):
+        rctx.execute(["mv", xcode_toolchain_bindir + "sw_vers", xcode_toolchain_bindir + "sw_vers.ported"])
+        rctx.template(
+            xcode_toolchain_bindir + "sw_vers",
+            _toolchain_path(rctx, "stubs/sw_vers.sh"),
+            {"%{build_machine_os_build}": _build_machine},
+            executable = True,
+        )
 
     # Create security stub for Linux (handles mobileprovision parsing).
     _security_path = xcode_toolchain_bindir + "security"
@@ -660,6 +700,7 @@ x86_64 only.
         "DEVELOPER_DIR",
         "HOME",
         "PATH",
+        "RULES_APPLECROSS_BUILD_MACHINE_OS_BUILD",
         "RULES_APPLECROSS_LOCAL_XCODE",
     ],
     implementation = _apple_cross_toolchain_impl,

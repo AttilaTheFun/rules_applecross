@@ -31,6 +31,24 @@ string_flag(
     ],
 )
 
+# The linker for Apple targets on Linux execution platforms: the ported
+# cctools ld64 (the default) or LLVM's ld64.lld, which the macOS execution
+# platform's toolchains always use. Builds whose output must match between a
+# Linux and a macOS host select lld on both.
+string_flag(
+    name = "linker",
+    build_setting_default = "ld64",
+    values = [
+        "ld64",
+        "lld",
+    ],
+)
+
+config_setting(
+    name = "linker_lld",
+    flag_values = {":linker": "lld"},
+)
+
 config_setting(
     name = "apple_bundling_default",
     flag_values = {":apple_bundling": "default"},

@@ -319,10 +319,14 @@ int main(int argc, const char *argv[]) {
   }
   response_file_stream.close();
 
-  // Resolve llvm-libtool-darwin from the toolchain bin directory.
+  // Resolve llvm-libtool-darwin from the toolchain bin directory, or from
+  // APPLECROSS_TOOLCHAIN_BIN where an execution platform names its own.
+  const char *toolchain_bin_env = getenv("APPLECROSS_TOOLCHAIN_BIN");
   std::filesystem::path toolchain_bin =
-      std::filesystem::path(developer_dir) /
-      "Toolchains/XcodeDefault.xctoolchain/usr/bin";
+      toolchain_bin_env && *toolchain_bin_env
+          ? std::filesystem::path(toolchain_bin_env)
+          : std::filesystem::path(developer_dir) /
+                "Toolchains/XcodeDefault.xctoolchain/usr/bin";
   std::string libtool_bin = (toolchain_bin / "llvm-libtool-darwin").string();
 
   std::vector<std::string> invocation_args = {

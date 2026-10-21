@@ -38,11 +38,18 @@ git clone -q https://github.com/tpoechtrager/cctools-port.git
 patchelf --set-rpath '$ORIGIN/../lib' "$OUT/bin/ld"
 rm -f "$OUT/bin/dsymutil" "$OUT/bin/nm"
 
-# Not ported upstream; placeholders the toolchain repository replaces.
-for tool in codesign ibtool swift-stdlib-tool; do
-  printf '#!/bin/bash\n' > "$OUT/bin/$tool"
-  chmod +x "$OUT/bin/$tool"
+# Not ported upstream: a placeholder the toolchain repository replaces.
+printf '#!/bin/bash\n' > "$OUT/bin/swift-stdlib-tool"
+chmod +x "$OUT/bin/swift-stdlib-tool"
+
+# The clean-room tools in this repository, replacing xcbuild's partial actool
+# and the codesign and ibtool placeholders. The marker tells the toolchain
+# repository that this codesign signs, so it keeps it.
+(cd "$ROOT/tools/apple_tools" && CARGO_TARGET_DIR="$WORK/apple_tools" cargo build -q --release --locked)
+for tool in actool codesign ibtool; do
+  install -m 755 "$WORK/apple_tools/release/$tool" "$OUT/bin/$tool"
 done
+git -C "$ROOT" rev-parse HEAD > "$OUT/bin/.apple-tools-revision" 2>/dev/null || echo unknown > "$OUT/bin/.apple-tools-revision"
 
 archive="$ROOT/ported-tools-linux-$ARCH.tar.xz"
 tar -C "$OUT" -Jcf "$archive" bin lib

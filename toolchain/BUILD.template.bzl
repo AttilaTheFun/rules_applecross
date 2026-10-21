@@ -652,6 +652,15 @@ dynamic_toolchain_info(
     visibility = ["//visibility:private"],
 )
 
+cc_args(
+    name = "applecross_lld",
+    actions = [
+        "@rules_cc//cc/toolchains/actions:link_actions",
+        "@rules_cc//cc/toolchains/actions:objc_executable",
+    ],
+    args = ["-fuse-ld=lld"],
+)
+
 [
     rule_based_cc_toolchain(
         name = "cc-compiler-" + arch,
@@ -663,7 +672,10 @@ dynamic_toolchain_info(
             ":applecross_sysroot_" + arch,
             ":applecross_platform_link_paths_" + arch,
             "@apple_support//toolchain:xcode_env",
-        ],
+        ] + select({
+            "@rules_applecross//toolchain:linker_lld": [":applecross_lld"],
+            "//conditions:default": [],
+        }),
         artifact_name_patterns = ["@apple_support//toolchain:dylib_pattern"],
         compiler = "clang",
         enabled_features = APPLE_SUPPORT_ENABLED_FEATURES,
@@ -755,4 +767,194 @@ _SWIFT_TOOLS_MACOS = "%{swift_tools_macos}"
     )
     for arch in _APPLE_ARCHS
     if _SWIFT_TOOLS_MACOS
+]
+
+# C, C++ and Objective-C toolchains for Apple targets on a macOS execution
+# platform, from the same LLVM release as the Linux ones (staged at
+# macos_toolchain/ on macOS hosts) rather than Xcode's clang and ld, so that
+# compiles and links on a Mac produce what Linux produces. They always link
+# with ld64.lld; select it on Linux too (--@rules_applecross//toolchain:linker=lld)
+# for matching output. Apple's tools (actool, ibtool, codesign) still run from
+# the Mac's Xcode.
+_MACOS_BIN = "macos_toolchain/usr/bin"
+_MACOS_LIB = "macos_toolchain/usr/lib"
+
+filegroup(
+    name = "macos_clang_tool_files",
+    srcs = glob(
+        [
+            _MACOS_BIN + "/clang",
+            _MACOS_BIN + "/clang++",
+            _MACOS_BIN + "/clang-*",
+            _MACOS_BIN + "/llvm",
+            _MACOS_LIB + "/clang/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+filegroup(
+    name = "macos_link_tool_files",
+    srcs = [":macos_clang_tool_files"] + glob(
+        [
+            _MACOS_BIN + "/dsymutil",
+            _MACOS_BIN + "/ld64.lld",
+            _MACOS_BIN + "/lld",
+            _MACOS_BIN + "/llvm-strip",
+            _MACOS_BIN + "/strip",
+        ],
+        allow_empty = True,
+    ) + _SWIFT_COMPATIBILITY_ARCHIVES + _SWIFT_TOOLCHAIN_LINK_STUBS,
+)
+
+filegroup(
+    name = "macos_libtool_files",
+    srcs = glob([_MACOS_BIN + "/llvm-libtool-darwin", _MACOS_BIN + "/llvm"], allow_empty = True),
+)
+
+builtin_include_directory(
+    name = "macos_clang_resource_include_directory",
+    path = _MACOS_LIB + "/clang",
+)
+
+# Bazel itself sets DEVELOPER_DIR and SDKROOT to the Mac's Xcode for these
+# actions, so the SDK tree is named by APPLECROSS_SYSROOT instead.
+cc_args(
+    name = "applecross_env_macos",
+    actions = ["@rules_cc//cc/toolchains/actions:all_actions"],
+    env = {
+        "APPLECROSS_TOOLCHAIN_BIN": "%{toolchain_path_prefix}" + _MACOS_BIN,
+        # clang finds its own directory, and so ld64.lld, by searching PATH:
+        # LLVM's multicall binary runs it as plain "clang", and apple_support
+        # passes -no-canonical-prefixes.
+        "PATH": "%{toolchain_path_prefix}" + _MACOS_BIN + ":/bin:/usr/bin",
+    },
+)
+
+[
+    cc_args(
+        name = "applecross_sysroot_" + arch + "_macos",
+        actions = [
+            "@rules_cc//cc/toolchains/actions:compile_actions",
+            "@rules_cc//cc/toolchains/actions:link_actions",
+            "@rules_cc//cc/toolchains/actions:objc_executable",
+        ],
+        args = [
+            "-isysroot",
+            "{sysroot}",
+            "-F{sysroot}/System/Library/Frameworks",
+            "-F{platform_frameworks}",
+        ],
+        allowlist_include_directories = [
+            ":macos_clang_resource_include_directory",
+            ":sdk_usr_include_directory_" + sdk_platform.lower(),
+            ":sdk_frameworks_directory_" + sdk_platform.lower(),
+            ":platform_frameworks_directory_" + sdk_platform.lower(),
+        ],
+        data = [
+            ":sdk_" + sdk_platform.lower(),
+            ":platform_frameworks_" + sdk_platform.lower(),
+        ],
+        env = {
+            "APPLECROSS_SYSROOT": "{sysroot}",
+        },
+        format = {
+            "platform_frameworks": ":platform_frameworks_" + sdk_platform.lower(),
+            "sysroot": ":sdk_" + sdk_platform.lower(),
+        },
+    )
+    for arch, sdk_platform in _APPLE_SDK_PLATFORMS_BY_ARCH.items()
+]
+
+cc_tool(
+    name = "macos_clang_tool",
+    src = ":wrapped_clang",
+    data = [":macos_clang_tool_files"],
+)
+
+cc_tool(
+    name = "macos_clangpp_tool",
+    src = ":wrapped_clang_pp",
+    data = [":macos_clang_tool_files"],
+)
+
+cc_tool(
+    name = "macos_clang_link_tool",
+    src = ":wrapped_clang",
+    data = [":macos_link_tool_files"],
+)
+
+cc_tool(
+    name = "macos_libtool_tool",
+    src = ":libtool",
+    data = [":macos_libtool_files"],
+)
+
+cc_tool(
+    name = "macos_strip_tool",
+    src = _MACOS_BIN + "/llvm-strip",
+    data = glob([_MACOS_BIN + "/llvm"], allow_empty = True),
+)
+
+cc_tool_map(
+    name = "applecross_tools_macos",
+    tools = {
+        "@rules_cc//cc/toolchains/actions:ar_actions": ":macos_libtool_tool",
+        "@rules_cc//cc/toolchains/actions:assembly_actions": ":macos_clang_tool",
+        "@rules_cc//cc/toolchains/actions:c_compile_actions": ":macos_clang_tool",
+        "@rules_cc//cc/toolchains/actions:cpp_compile": ":macos_clangpp_tool",
+        "@rules_cc//cc/toolchains/actions:cpp_header_parsing": ":macos_clangpp_tool",
+        "@rules_cc//cc/toolchains/actions:cpp_link_dynamic_library": ":macos_clang_link_tool",
+        "@rules_cc//cc/toolchains/actions:cpp_link_executable": ":macos_clang_link_tool",
+        "@rules_cc//cc/toolchains/actions:cpp_module_compile": ":macos_clangpp_tool",
+        "@rules_cc//cc/toolchains/actions:linkstamp_compile": ":macos_clang_tool",
+        "@rules_cc//cc/toolchains/actions:objc_compile": ":macos_clang_tool",
+        "@rules_cc//cc/toolchains/actions:objc_executable": ":macos_clang_link_tool",
+        "@rules_cc//cc/toolchains/actions:objcpp_compile": ":macos_clangpp_tool",
+        "@rules_cc//cc/toolchains/actions:strip": ":macos_strip_tool",
+    },
+)
+
+[
+    rule_based_cc_toolchain(
+        name = "cc-compiler-" + arch + "-macos-exec",
+        args = [
+            "@apple_support_toolchain_env//:include_directories_from_xcode",
+            "@apple_support//toolchain:xcode_env",
+            ":applecross_env_macos",
+            ":applecross_apple_clang_compat",
+            ":applecross_sysroot_" + arch + "_macos",
+            ":applecross_platform_link_paths_" + arch,
+            ":applecross_lld",
+        ],
+        artifact_name_patterns = ["@apple_support//toolchain:dylib_pattern"],
+        compiler = "clang",
+        enabled_features = APPLE_SUPPORT_ENABLED_FEATURES,
+        known_features = APPLE_SUPPORT_KNOWN_FEATURES,
+        legacy_tools = ["@apple_support//toolchain:gcov"],
+        make_variables = ["@apple_support//toolchain:stack_frame_variable"],
+        module_map = "@apple_support//crosstool:module.modulemap",
+        supports_header_parsing = True,
+        supports_param_files = True,
+        target_system_name = "$(TARGET)",
+        tool_map = ":applecross_tools_macos",
+        toolchains = [":applecross_dynamic_toolchain_info"],
+    )
+    for arch in _APPLE_ARCHS
+    if not arch.startswith("darwin")
+]
+
+[
+    toolchain(
+        name = "cc-toolchain-" + arch + "-macos-exec",
+        exec_compatible_with = [
+            "@platforms//os:macos",
+            "@platforms//cpu:arm64",
+        ],
+        target_compatible_with = APPLE_PLATFORMS_CONSTRAINTS[arch],
+        toolchain = ":cc-compiler-" + arch + "-macos-exec",
+        toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+    )
+    for arch in _APPLE_ARCHS
+    if not arch.startswith("darwin")
 ]
