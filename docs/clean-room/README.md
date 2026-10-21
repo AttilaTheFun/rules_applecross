@@ -1,8 +1,8 @@
 # Clean-room Apple build tools
 
 `tools/apple_tools` implements, for Linux execution platforms, the Apple
-tools rules_apple runs while bundling: `actool`, `ibtool`, `codesign` and
-`swift-stdlib-tool`.
+tools rules_apple runs while bundling (`actool`, `ibtool`, `codesign` and
+`swift-stdlib-tool`) and the SwiftUI macro plugin the Swift compiler needs.
 They were written without disassembling or decompiling Apple's tools or
 frameworks. What was used:
 
@@ -26,15 +26,22 @@ limits of what is reproduced:
 | [ibtool.md](ibtool.md) | Storyboards: NIB archives, the compiled storyboard's Info.plist |
 | [codesign.md](codesign.md) | Ad hoc signatures and resource seals |
 | [swift-stdlib-tool.md](swift-stdlib-tool.md) | The Swift runtime libraries copied into apps |
+| [swiftui-macros.md](swiftui-macros.md) | SwiftUI's `@State` macro, for the Swift compiler on Linux |
 | [lzfse.md](lzfse.md) | The streaming LZFSE encoder renditions are compressed with |
 | [foundation-hashing.md](foundation-hashing.md) | Hash-table orders CoreFoundation and Foundation enumerate in |
 
 ## The result
 
-`tools/compare_ipa.sh` builds `examples/ios/CleanRoom` (SwiftUI, a universal
-app icon, a launch storyboard, ad hoc signed for arm64 devices) on the Mac
-with Xcode's tools and in the Linux VM with these, and compares the two
-`.ipa` files. They are identical, byte for byte.
+`tools/compare_ipa.sh` builds `examples/ios/CleanRoom` (SwiftUI with
+`@State`, a universal app icon, a launch storyboard, ad hoc signed for arm64
+devices) on the Mac with Xcode's tools and in the Linux VM with these, and
+compares the two `.ipa` files. They are identical, byte for byte.
+
+`tools/linux_vm/build-visor.sh` clones Logan's Visor app in the Linux VM and
+builds it there (an Icon Composer icon, SwiftUI with `@State`, Swift
+packages, a widget extension). The result runs in the iOS 18.4 and 27.0
+simulators; how it compares with Visor's Xcode build is in
+[../consumers.md](../consumers.md#what-differs-from-an-xcode-build).
 
 ## Scope
 

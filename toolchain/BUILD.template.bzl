@@ -269,11 +269,21 @@ filegroup(
     srcs = glob([_XCODE_TOOLCHAIN_BIN + "/*"]),
 )
 
+# Clean-room stand-ins for the macro plugins Apple ships as macOS dylibs
+# (SwiftUIMacros, for SwiftUI's @State), when the ported tools include them.
+filegroup(
+    name = "macro_plugins",
+    srcs = glob([_XCODE_TOOLCHAIN_BIN + "/SwiftUIMacros"], allow_empty = True),
+)
+
 filegroup(
     name = "sdk_tool_files",
     srcs = glob(
         include = [
             _XCODE_TOOLCHAIN_BIN + "/*",
+            # The back-deployment runtimes swift-stdlib-tool copies into apps
+            # (rules_apple looks for them under usr/lib/swift-*/<platform>).
+            _XCODE_TOOLCHAIN_LIB + "/swift-*/*/*.dylib",
             # xcrun refuses to run without a toolchain descriptor.
             _XCODE_TOOLCHAIN_DIR + "/ToolchainInfo.plist",
             _XCODE_DEVELOPER_DIR + "/Platforms/*.platform/Info.plist",
@@ -339,6 +349,13 @@ _SWIFT_TOOLCHAIN_LINK_STUBS = glob(
     exclude = [_XCODE_TOOLCHAIN_LIB + "/swift/host/*.tbd"],
 )
 
+# Libraries back-deploying newer Swift runtime features (Span, in swift-6.2),
+# which binaries for older OSes link and swift-stdlib-tool bundles.
+_SWIFT_BACK_DEPLOYMENT_LIBS = glob(
+    [_XCODE_TOOLCHAIN_LIB + "/swift-6.2/*/*.dylib"],
+    allow_empty = True,
+)
+
 filegroup(
     name = "link_tool_files",
     srcs = [
@@ -351,7 +368,7 @@ filegroup(
         _XCODE_TOOLCHAIN_BIN + "/strip",
         _XCODE_TOOLCHAIN_LIB + "/libtapi.so",
         _XCODE_TOOLCHAIN_LIB + "/libtapi.so.8svn",
-    ] + _SWIFT_COMPATIBILITY_ARCHIVES + _SWIFT_TOOLCHAIN_LINK_STUBS,
+    ] + _SWIFT_COMPATIBILITY_ARCHIVES + _SWIFT_TOOLCHAIN_LINK_STUBS + _SWIFT_BACK_DEPLOYMENT_LIBS,
 )
 
 filegroup(
@@ -715,6 +732,7 @@ cc_toolchain_suite(
     swift_toolchain(
         name = "swift-compiler-" + arch,
         cpu = arch,
+        macro_plugins = [":macro_plugins"],
         swift_tools = "%{swift_tools}",
         toolchain_files = _SWIFT_TOOLCHAIN_FILES_BY_ARCH[arch],
         toolchain_path_prefix = "%{toolchain_path_prefix}",

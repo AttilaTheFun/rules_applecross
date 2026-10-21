@@ -219,8 +219,15 @@ def _swift_linkopts_cc_info(swift_platform_name, sdk_platform, toolchain_label):
     platform_developer_framework_dir = platform_developer_dir + "/Library/Frameworks"
     platform_developer_lib_dir = platform_developer_dir + "/usr/lib"
 
+    # As rules_swift's Xcode toolchain does for Xcode 26 and later: where the
+    # compiler's autolinked back-deployment libraries are (Span's, for
+    # deployment targets before the 26 releases). ld ignores an autolinked
+    # library it cannot find, leaving its symbols bound to the OS's runtime.
+    swift_back_deployment_dir = "__BAZEL_XCODE_DEVELOPER_DIR__/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/" + swift_platform_name
+
     linkopts = [
         "-L" + swift_lib_dir,
+        "-L" + swift_back_deployment_dir,
         "-L/usr/lib/swift",
         "-L" + platform_developer_lib_dir,
         "-Wl,-objc_abi_version,2",
@@ -415,6 +422,22 @@ def _swift_toolchain_impl(ctx):
                 "{0}/usr/lib/swift/host/plugins#{0}/usr/bin/swift-plugin-server".format(plugin_platform_dir),
             )],
         ))
+    elif ctx.files.macro_plugins:
+        # Elsewhere they cannot load; clean-room executables stand in for
+        # them (tools/apple_tools/swiftui_macros), each named after the module
+        # SDK interfaces give in #externalMacro.
+        action_configs.append(ActionConfigInfo(
+            actions = [
+                _SWIFT_ACTION_COMPILE,
+                _SWIFT_ACTION_COMPILE_MODULE_INTERFACE,
+                _SWIFT_ACTION_DERIVE_FILES,
+                _SWIFT_ACTION_DUMP_AST,
+            ],
+            configurators = [
+                add_arg("-load-plugin-executable", "{}#{}".format(plugin.path, plugin.basename))
+                for plugin in ctx.files.macro_plugins
+            ],
+        ))
 
     # Xcode's driver turns these on itself; the swift.org one does not, so
     # e.g. SwiftUI's VideoPlayer (in AVKit's SwiftUI overlay) goes missing.
@@ -475,7 +498,7 @@ def _swift_toolchain_impl(ctx):
 
     # Collect toolchain files as additional tools for sandbox access.
     swift_tools = ctx.attr.swift_tools[SwiftToolsInfo]
-    additional_tools = ctx.attr.toolchain_files.files.to_list() + list(swift_tools.additional_inputs)
+    additional_tools = ctx.attr.toolchain_files.files.to_list() + ctx.files.macro_plugins + list(swift_tools.additional_inputs)
     xcode_env = None
     if ctx.attr.exec_os == "macos":
         apple_platform = apple_common.platform.macos if info.platform_type == "macos" else getattr(
@@ -580,6 +603,10 @@ swift_toolchain = rule(
         "toolchain_path_prefix": attr.string(
             mandatory = True,
             doc = "Path prefix for the cross-compilation toolchain (e.g. 'external/apple_cross_toolchain/').",
+        ),
+        "macro_plugins": attr.label_list(
+            allow_files = True,
+            doc = "Macro plugin executables for compiles on Linux, each named after the module it implements.",
         ),
         "toolchain_files": attr.label(
             mandatory = True,
