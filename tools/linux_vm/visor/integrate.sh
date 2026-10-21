@@ -24,6 +24,12 @@ import sys
 path, commit = sys.argv[1], sys.argv[2]
 p = "MODULE.bazel"
 s = open(p).read()
+# rules_swift 4.1.0.isomer.2 carries the Swift worker fix the Linux build
+# needs (rules_applecross's patches/rules_swift_worker_copy_overwrite.patch);
+# visor#124 moves visor to it.
+s = s.replace('''bazel_dep(name = "rules_swift", version = "4.1.0.isomer.1")''',
+              '''bazel_dep(name = "rules_swift", version = "4.1.0.isomer.2")''')
+assert '''bazel_dep(name = "rules_swift", version = "4.1.0.isomer.2")''' in s
 old_apple = '''bazel_dep(name = "rules_apple", version = "5.1.0")'''
 assert old_apple in s
 s = s.replace(old_apple, '''bazel_dep(name = "rules_apple", version = "5.2.0")''')
@@ -57,11 +63,11 @@ single_version_override(
     version = "2.8.4",
 )
 
+# rules_applecross asks for rules_swift 4.1.2, which would otherwise win over
+# visor's 4.1.0.isomer.2 (isomer's patches and the worker fix).
 single_version_override(
     module_name = "rules_swift",
-    patch_strip = 1,
-    patches = ["//third_party/patches/applecross:rules_swift_worker_copy_overwrite.patch"],
-    version = "4.1.0.isomer.1",
+    version = "4.1.0.isomer.2",
 )
 
 apple_cross_toolchain = use_extension("@rules_applecross//toolchain:extensions.bzl", "apple_cross_toolchain")

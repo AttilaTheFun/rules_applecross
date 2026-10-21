@@ -14,9 +14,13 @@ rules_applecross patches rules_apple, apple_support and rules_swift in its own
 - `rules_apple` 5.2.0 with the five `rules_apple_*.patch` files (after any
   patches of the root's own);
 - `apple_support` 2.8.4 with `apple_support_bazel8_xcode_properties.patch`;
-- `rules_swift`, at the version the root uses, with
+- `rules_swift` 4.2.0 or later, or an earlier version with
   `rules_swift_worker_copy_overwrite.patch`. Without it the Swift worker fails
-  every incremental rebuild with `Could not copy ... (File exists)`.
+  every incremental rebuild with `Could not copy ... (File exists)`; upstream
+  fixed this in 4.2.0 (#1905). Visor uses rules_swift 4.1.0.isomer.2 from its
+  registry, which carries the patch, and pins it with a
+  `single_version_override`: rules_applecross asks for 4.1.2, which would
+  otherwise be chosen.
 
 ## Toolchains
 
