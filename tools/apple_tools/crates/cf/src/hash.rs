@@ -48,3 +48,41 @@ pub fn hash_units(u: &[u16]) -> u64 {
     }
     result.wrapping_add(result << (len & 31))
 }
+
+/// Bucket counts of CoreFoundation's hash tables and the entries each holds
+/// before growing, from the published CFBasicHash sources.
+const TABLE_SIZES: [usize; 22] = [0, 3, 7, 13, 23, 41, 71, 127, 191, 251, 383, 631, 1087, 1723, 2803, 4523, 7351, 11959, 19447, 31231, 50683, 81919];
+const TABLE_CAPACITIES: [usize; 22] = [0, 3, 6, 11, 19, 32, 52, 85, 118, 155, 237, 390, 672, 1065, 1732, 2795, 4543, 7391, 12019, 19302, 31324, 50629];
+
+/// The order in which a CoreFoundation hash table of string keys, filled in
+/// `keys` order, enumerates them: linear probing over the bucket counts
+/// above, rehashing in enumeration order whenever an insertion would exceed
+/// the current capacity. Returns indices into `keys`.
+pub fn table_order(keys: &[&str]) -> Vec<usize> {
+    let hashes: Vec<u64> = keys.iter().map(|k| string_hash(k)).collect();
+    let mut level = 0;
+    let mut table: Vec<Option<usize>> = Vec::new();
+    for (n, &h) in hashes.iter().enumerate() {
+        if n + 1 > TABLE_CAPACITIES[level] {
+            while n + 1 > TABLE_CAPACITIES[level] {
+                level += 1;
+            }
+            let old: Vec<usize> = table.iter().flatten().copied().collect();
+            table = vec![None; TABLE_SIZES[level]];
+            for k in old {
+                insert(&mut table, hashes[k], k);
+            }
+        }
+        insert(&mut table, h, n);
+    }
+    table.into_iter().flatten().collect()
+}
+
+fn insert(table: &mut [Option<usize>], hash: u64, key: usize) {
+    let size = table.len();
+    let mut i = (hash % size as u64) as usize;
+    while table[i].is_some() {
+        i = (i + 1) % size;
+    }
+    table[i] = Some(key);
+}

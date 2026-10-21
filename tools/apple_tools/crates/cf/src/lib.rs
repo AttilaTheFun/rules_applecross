@@ -4,6 +4,7 @@
 //! (XML) sort; writers that follow a hash table's iteration order (binary
 //! property lists, keyed archives) take the order from [`hash`].
 
+pub mod binary;
 pub mod hash;
 pub mod xml;
 
