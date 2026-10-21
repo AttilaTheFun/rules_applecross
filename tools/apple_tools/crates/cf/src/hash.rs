@@ -86,3 +86,44 @@ fn insert(table: &mut [Option<usize>], hash: u64, key: usize) {
     }
     table[i] = Some(key);
 }
+
+/// Bucket counts of Foundation's mutable sets, and the entry counts at which
+/// each grows, as observed through NSMutableSet's public interface
+/// (docs/clean-room/foundation-hashing.md). The two smallest grow when an
+/// insertion would overfill them; the rest as soon as an insertion brings
+/// them to their threshold. Growth rehashes in enumeration order.
+const SET_SIZES: [usize; 12] = [3, 7, 13, 23, 41, 71, 127, 191, 251, 383, 631, 1087];
+const SET_GROWTH: [usize; 12] = [3, 7, 13, 21, 34, 54, 87, 120, 157, 239, usize::MAX, usize::MAX];
+
+/// The order in which an NSMutableSet of strings, filled in `keys` order,
+/// enumerates them. Returns indices into `keys`.
+pub fn set_order(keys: &[&str]) -> Vec<usize> {
+    assert!(keys.len() < 400, "set enumeration order is established for fewer than 400 entries");
+    let hashes: Vec<u64> = keys.iter().map(|k| string_hash(k)).collect();
+    let mut level = 0;
+    let mut table: Vec<Option<usize>> = vec![None; SET_SIZES[0]];
+    let rehash = |table: &mut Vec<Option<usize>>, level: usize| {
+        let old: Vec<usize> = table.iter().flatten().copied().collect();
+        *table = vec![None; SET_SIZES[level]];
+        for k in old {
+            insert(table, hashes[k], k);
+        }
+    };
+    for (n, &h) in hashes.iter().enumerate() {
+        let count = n + 1;
+        if level < 2 && count > SET_GROWTH[level] {
+            while level < 2 && count > SET_GROWTH[level] {
+                level += 1;
+            }
+            rehash(&mut table, level);
+        }
+        insert(&mut table, h, n);
+        if level >= 2 && count >= SET_GROWTH[level] {
+            while count >= SET_GROWTH[level] {
+                level += 1;
+            }
+            rehash(&mut table, level);
+        }
+    }
+    table.into_iter().flatten().collect()
+}

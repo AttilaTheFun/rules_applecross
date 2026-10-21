@@ -4,8 +4,8 @@
 //! Objects are numbered in the order they are first encoded, depth first.
 //! Each object's values are stored together, in the order encoded. Classes
 //! are listed in the order objects first use them, followed by any fallback
-//! classes. Keys are listed in the enumeration order of a CoreFoundation
-//! hash table filled as keys are first used.
+//! classes. Keys are listed in the enumeration order of a Foundation
+//! mutable set filled as keys are first used. The archive ends with "LNE\0".
 
 use std::collections::HashMap;
 
@@ -14,6 +14,7 @@ pub enum Value {
     Int(i64),
     Bool(bool),
     Float(f32),
+    #[allow(dead_code)]
     Double(f64),
     Data(Vec<u8>),
     Nil,
@@ -146,7 +147,7 @@ pub fn archive(root: Object) -> Vec<u8> {
         }
     }
 
-    let order = cf::hash::table_order(&e.keys);
+    let order = cf::hash::set_order(&e.keys);
     let mut key_position = vec![0usize; e.keys.len()];
     for (pos, &k) in order.iter().enumerate() {
         key_position[k] = pos;
@@ -236,5 +237,6 @@ pub fn archive(root: Object) -> Vec<u8> {
     out.extend(keys);
     out.extend(values);
     out.extend(class_table);
+    out.extend_from_slice(b"LNE\0");
     out
 }
