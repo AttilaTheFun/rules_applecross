@@ -4,8 +4,9 @@
 //! outside the main executable and `_CodeSignature` is matched against each
 //! set; the matching rule of greatest weight decides whether it is omitted,
 //! optional or sealed. `files` holds SHA-1 digests under `rules`, `files2`
-//! SHA-256 digests under `rules2`. A nested bundle that carries code is
-//! sealed as a whole by its code directory hash and designated requirement.
+//! SHA-256 digests under `rules2`. These rule sets mark nothing as nested
+//! code, so a nested bundle's or library's files are sealed like any others
+//! (as Xcode's codesign seals an iOS app's PlugIns and Frameworks).
 
 use cf::Value;
 use regex::Regex;
@@ -18,18 +19,17 @@ struct Rule {
     pattern: &'static str,
     omit: bool,
     optional: bool,
-    nested: bool,
     weight: f64,
     /// Whether the rule is written as `true` rather than a dictionary.
     plain: bool,
 }
 
 const fn plain(pattern: &'static str) -> Rule {
-    Rule { pattern, omit: false, optional: false, nested: false, weight: 1.0, plain: true }
+    Rule { pattern, omit: false, optional: false, weight: 1.0, plain: true }
 }
 
 const fn rule(pattern: &'static str, omit: bool, optional: bool, weight: f64) -> Rule {
-    Rule { pattern, omit, optional, nested: false, weight, plain: false }
+    Rule { pattern, omit, optional, weight, plain: false }
 }
 
 fn rules_v1() -> Vec<Rule> {
@@ -63,9 +63,6 @@ fn rules_value(rules: &[Rule]) -> Value {
             Value::Boolean(true)
         } else {
             let mut d = Vec::new();
-            if r.nested {
-                d.push(("nested".to_string(), Value::Boolean(true)));
-            }
             if r.omit {
                 d.push(("omit".to_string(), Value::Boolean(true)));
             }
@@ -99,38 +96,20 @@ fn decide<'a>(rules: &'a [Compiled], path: &str) -> Option<&'a Rule> {
     best
 }
 
-/// A nested bundle that carries its own signature, sealed as a unit.
-pub struct NestedCode {
-    pub cdhash: Vec<u8>,
-    pub requirement: String,
-}
-
 pub enum Entry {
     File(PathBuf),
     Symlink(String),
-    Nested(NestedCode),
 }
 
 /// Collects the bundle's files, relative to `root`, in path order.
-/// `nested` reports a directory that is separately signed code.
-pub fn collect(
-    root: &Path,
-    executable: Option<&str>,
-    nested: &dyn Fn(&Path) -> Option<NestedCode>,
-) -> std::io::Result<Vec<(String, Entry)>> {
+pub fn collect(root: &Path, executable: Option<&str>) -> std::io::Result<Vec<(String, Entry)>> {
     let mut out = Vec::new();
-    walk(root, root, executable, nested, &mut out)?;
+    walk(root, root, executable, &mut out)?;
     out.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(out)
 }
 
-fn walk(
-    root: &Path,
-    dir: &Path,
-    executable: Option<&str>,
-    nested: &dyn Fn(&Path) -> Option<NestedCode>,
-    out: &mut Vec<(String, Entry)>,
-) -> std::io::Result<()> {
+fn walk(root: &Path, dir: &Path, executable: Option<&str>, out: &mut Vec<(String, Entry)>) -> std::io::Result<()> {
     let mut names: Vec<_> = std::fs::read_dir(dir)?.collect::<Result<Vec<_>, _>>()?;
     names.sort_by_key(|e| e.file_name());
     for entry in names {
@@ -143,11 +122,7 @@ fn walk(
         if meta.file_type().is_symlink() {
             out.push((rel, Entry::Symlink(std::fs::read_link(&path)?.to_string_lossy().into_owned())));
         } else if meta.is_dir() {
-            if let Some(code) = nested(&path) {
-                out.push((rel, Entry::Nested(code)));
-            } else {
-                walk(root, &path, executable, nested, out)?;
-            }
+            walk(root, &path, executable, out)?;
         } else {
             out.push((rel, Entry::File(path)));
         }
@@ -178,10 +153,6 @@ pub fn build(entries: &[(String, Entry)]) -> std::io::Result<Value> {
                 let mut d: Vec<(String, Value)> = match entry {
                     Entry::File(_) => vec![("hash2".into(), Value::Data(Sha256::digest(contents.as_ref().unwrap()).to_vec()))],
                     Entry::Symlink(target) => vec![("symlink".into(), Value::string(target.clone()))],
-                    Entry::Nested(code) => vec![
-                        ("cdhash".into(), Value::Data(code.cdhash.clone())),
-                        ("requirement".into(), Value::string(code.requirement.clone())),
-                    ],
                 };
                 if r.optional {
                     d.push(("optional".into(), Value::Boolean(true)));

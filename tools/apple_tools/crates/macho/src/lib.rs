@@ -15,7 +15,12 @@ pub const LC_SEGMENT_64: u32 = 0x19;
 pub const LC_CODE_SIGNATURE: u32 = 0x1d;
 pub const LC_BUILD_VERSION: u32 = 0x32;
 pub const LC_VERSION_MIN_IPHONEOS: u32 = 0x25;
+pub const LC_UUID: u32 = 0x1b;
+pub const PLATFORM_IOS: u32 = 2;
+pub const PLATFORM_TVOS: u32 = 3;
 pub const CPU_TYPE_ARM64: u32 = 0x0100_000c;
+/// The load commands naming a dylib the image links.
+const LC_DYLIB_LINKS: [u32; 5] = [0xc, 0x8000_0018, 0x8000_001f, 0x20, 0x8000_0023];
 
 #[derive(Debug)]
 pub struct Error(pub String);
@@ -70,6 +75,10 @@ pub struct Image {
     pub code_signature: Option<(usize, u32, u32)>,
     /// (platform, minos) from LC_BUILD_VERSION.
     pub build_version: Option<(u32, u32)>,
+    /// The install names of the dylibs the image links, in load command
+    /// order.
+    pub dylibs: Vec<String>,
+    pub uuid: Option<[u8; 16]>,
     ncmds: u32,
     sizeofcmds: u32,
 }
@@ -87,6 +96,8 @@ impl Image {
         let mut segments = Vec::new();
         let mut code_signature = None;
         let mut build_version = None;
+        let mut dylibs = Vec::new();
+        let mut uuid = None;
         let mut off = 32usize;
         for _ in 0..ncmds {
             if off + 8 > data.len() {
@@ -111,15 +122,41 @@ impl Image {
                 }
                 LC_CODE_SIGNATURE => code_signature = Some((off, u32le(&data, off + 8), u32le(&data, off + 12))),
                 LC_BUILD_VERSION => build_version = Some((u32le(&data, off + 8), u32le(&data, off + 12))),
+                LC_UUID if size >= 24 => uuid = Some(data[off + 8..off + 24].try_into().unwrap()),
+                c if LC_DYLIB_LINKS.contains(&c) => {
+                    let name_off = u32le(&data, off + 8) as usize;
+                    if name_off >= size {
+                        return err("malformed dylib load command");
+                    }
+                    let name = &data[off + name_off..off + size];
+                    let end = name.iter().position(|&b| b == 0).unwrap_or(name.len());
+                    dylibs.push(String::from_utf8_lossy(&name[..end]).into_owned());
+                }
                 _ => {}
             }
             off += size;
         }
-        Ok(Image { data, cputype, cpusubtype, filetype, segments, code_signature, build_version, ncmds, sizeofcmds })
+        Ok(Image { data, cputype, cpusubtype, filetype, segments, code_signature, build_version, dylibs, uuid, ncmds, sizeofcmds })
     }
 
     pub fn segment(&self, name: &str) -> Option<&Segment> {
         self.segments.iter().find(|s| s.name == name)
+    }
+
+    /// The file contents of a section, if the image has it in the file.
+    pub fn section(&self, segment: &str, section: &str) -> Option<&[u8]> {
+        let seg = self.segment(segment)?;
+        let nsects = u32le(&self.data, seg.command_offset + 64) as usize;
+        let fixed = |b: &[u8]| String::from_utf8_lossy(b).trim_end_matches('\0').to_string();
+        for i in 0..nsects {
+            let s = seg.command_offset + 72 + i * 80;
+            if fixed(&self.data[s..s + 16]) == section {
+                let size = u64le(&self.data, s + 40) as usize;
+                let offset = u32le(&self.data, s + 48) as usize;
+                return self.data.get(offset..offset.checked_add(size)?);
+            }
+        }
+        None
     }
 
     /// The end of the bytes a signature covers: the image without any
@@ -186,9 +223,10 @@ impl Image {
         put32(&mut self.data, command + 8, dataoff);
         put32(&mut self.data, command + 12, size);
         self.code_signature = Some((command, dataoff, size));
+        // Like codesign, write over a signature already there: bytes of it the
+        // new one does not cover stay; only space added is zeroed.
         let new_len = dataoff as usize + size as usize;
         self.data.resize(new_len, 0);
-        self.data[dataoff as usize..].fill(0);
         let filesize = new_len as u64 - linkedit.fileoff;
         let vmsize = filesize.div_ceil(page_size) * page_size;
         put64(&mut self.data, linkedit.command_offset + 48, filesize);
@@ -223,6 +261,13 @@ impl Universal {
             Ok(Universal::Fat(slices))
         } else {
             Ok(Universal::Thin(Image::parse(data)?))
+        }
+    }
+
+    pub fn images(&self) -> Vec<&Image> {
+        match self {
+            Universal::Thin(i) => vec![i],
+            Universal::Fat(s) => s.iter().map(|(_, i)| i).collect(),
         }
     }
 

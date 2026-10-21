@@ -86,6 +86,12 @@ rsync -a --relative --exclude "*.dylib" "./Toolchains/XcodeDefault.xctoolchain/u
 if [[ -d "./Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0" ]]; then
   rsync -a --relative --exclude "*.dylib" "./Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/" "$NEW_DEVELOPER_DIR"
 fi
+# The back-deployment runtimes (swift-5.5, swift-6.2, ...) are kept whole:
+# swift-stdlib-tool copies them into apps that need them.
+for runtime in ./Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-*; do
+  [[ "$runtime" == */swift-5.0 ]] && continue
+  rsync -a --relative "$runtime/" "$NEW_DEVELOPER_DIR"
+done
 
 # Create a placeholder bin directory
 mkdir -p "$NEW_DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin"

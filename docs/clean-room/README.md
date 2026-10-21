@@ -1,7 +1,8 @@
 # Clean-room Apple build tools
 
 `tools/apple_tools` implements, for Linux execution platforms, the Apple
-tools rules_apple runs while bundling: `actool`, `ibtool` and `codesign`.
+tools rules_apple runs while bundling: `actool`, `ibtool`, `codesign` and
+`swift-stdlib-tool`.
 They were written without disassembling or decompiling Apple's tools or
 frameworks. What was used:
 
@@ -13,7 +14,8 @@ frameworks. What was used:
   `CGContextDrawImage`, libcompression) to observe behaviour the outputs
   imply;
 - published sources: the reference LZFSE encoder, CoreFoundation's
-  CFString hash and CFBasicHash tables, the Apple File System Reference.
+  CFString hash and CFBasicHash tables, the Apple File System Reference,
+  swift-stdlib-tool's former source in the Swift repository.
 
 Each page records what was observed, what was inferred from it, and the
 limits of what is reproduced:
@@ -23,6 +25,7 @@ limits of what is reproduced:
 | [actool.md](actool.md) | Asset catalogs: CgBI icons, resampling, Assets.car |
 | [ibtool.md](ibtool.md) | Storyboards: NIB archives, the compiled storyboard's Info.plist |
 | [codesign.md](codesign.md) | Ad hoc signatures and resource seals |
+| [swift-stdlib-tool.md](swift-stdlib-tool.md) | The Swift runtime libraries copied into apps |
 | [lzfse.md](lzfse.md) | The streaming LZFSE encoder renditions are compressed with |
 | [foundation-hashing.md](foundation-hashing.md) | Hash-table orders CoreFoundation and Foundation enumerate in |
 
@@ -40,8 +43,11 @@ approximated: an `.ipa` that Xcode would build differently is a defect this
 design does not hide. In particular:
 
 - actool compiles one universal 1024 px iOS app icon per catalog; image,
-  colour and data sets, other platforms and Icon Composer documents are not
-  supported yet;
+  colour and data sets and other platforms are not supported yet. The one
+  approximation: an Icon Composer document (`.icon`) is compiled to a flat
+  icon (actool.md), because Xcode's own output for one is not
+  reproducible (it names renditions with fresh UUIDs) and the layered
+  renditions iOS 26 draws its glass from are not reproduced;
 - ibtool compiles launch-screen storyboards (a view controller with a root
   view, a frame, an autoresizing mask, a safe-area guide and a system
   background colour);

@@ -89,9 +89,18 @@ fn blob(magic: u32, payload: &[u8]) -> Vec<u8> {
     b
 }
 
-/// The page size iOS-family arm64 images are hashed in.
+/// The page size an image's code is hashed in, as observed from codesign
+/// (docs/clean-room/codesign.md): 16 KiB for arm64, except iOS devices below
+/// iOS 16 and tvOS devices; 4 KiB otherwise.
 pub fn page_size(image: &Image) -> usize {
-    if image.cputype == macho::CPU_TYPE_ARM64 { 16384 } else { 4096 }
+    const IOS_16: u32 = 16 << 16;
+    let small = match image.build_version {
+        _ if image.cputype != macho::CPU_TYPE_ARM64 => true,
+        Some((macho::PLATFORM_IOS, minos)) => minos < IOS_16,
+        Some((macho::PLATFORM_TVOS, _)) => true,
+        _ => false,
+    };
+    if small { 4096 } else { 16384 }
 }
 
 fn code_directory(image: &Image, code_limit: usize, inputs: &Inputs, requirements: &[u8]) -> Vec<u8> {

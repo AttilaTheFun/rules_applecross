@@ -72,3 +72,28 @@ one later in byte order); that renumbering is not reproduced and is refused.
 Versions recorded in the car are Xcode 27.0's (CoreUI 1010, storage 17,
 CoreThemeDefinition 664); the Xcode name and build come from the SDK's
 `version.plist`.
+
+## Icon Composer documents
+
+rules_apple passes an `.icon` document as an input beside any catalogs
+(`actool ... --app-icon Visor CATALOG... Visor.icon`). For Visor's document
+(a solid fill, one group of three SVG layers with a neutral shadow and
+translucency), Xcode 27.0 writes the same bundle PNGs and partial Info.plist
+as for an icon set, and an Assets.car holding, besides Icon Image and
+MultiSized Image renditions for phone and pad, the document's colours, a
+named gradient, its SVGs as Vector renditions, IconGroup and IconImageStack
+renditions per appearance (light, dark, tintable), and flattened 1024 px
+Icon Images for the Any, Dark and Tintable appearances. Two runs of Xcode's
+actool on the same document differ: the Icon Image renditions are named
+with a fresh UUID each time
+(`Visor1024x1024_UIAppearanceAny_<UUID>-<pid>-<time>.png`).
+
+Not reproducible, then, and this actool approximates: it renders the
+document's default appearance flat (the fill, then each group's layers back
+to front with a blurred, downward-offset shadow of the group's opacity, no
+glass, specular or translucency; SVG layers through resvg, PNG layers
+scaled about the centre) and compiles that image exactly as an icon set's
+1024 px image, named `NAME1024x1024.png`. The result has the renditions
+iOS before 26 draws the icon from; iOS 26 draws it as it draws an icon
+set's, without glass. Xcode's flattened image is square and opaque, as this
+one is.

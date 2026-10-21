@@ -99,20 +99,17 @@ fn default_identifier(path: &Path) -> String {
     }
 }
 
-/// A nested bundle's seal: its code directory hash (truncated to 20 bytes) and
-/// the designated requirement an ad-hoc signature implies.
-fn nested_code(dir: &Path) -> Option<resources::NestedCode> {
-    let b = bundle(dir)?;
-    let exe = b.root.join(b.executable.as_ref()?);
-    let image = match macho::Universal::parse(std::fs::read(&exe).ok()?).ok()? {
-        macho::Universal::Thin(i) => i,
-        macho::Universal::Fat(mut s) => s.remove(0).1,
-    };
-    let cd = sign::existing_code_directory(&image)?;
-    let full = <sha2::Sha256 as sha2::Digest>::digest(&cd);
-    let cdhash = full[..20].to_vec();
-    let hex: String = cdhash.iter().map(|b| format!("{b:02x}")).collect();
-    Some(resources::NestedCode { cdhash, requirement: format!("cdhash H\"{hex}\"") })
+/// The identifier codesign gives a Mach-O file with none of its own: the
+/// file name without its extension, made unique when it has no dot by
+/// appending "-", then "UUID" and the image's LC_UUID, in hex.
+fn file_identifier(path: &Path, image: &macho::Image) -> Result<String, String> {
+    let stem = default_identifier(path);
+    if stem.contains('.') {
+        return Ok(stem);
+    }
+    let uuid = image.uuid.ok_or_else(|| format!("{}: has no LC_UUID to derive an identifier from; pass -i", path.display()))?;
+    let hex: String = b"UUID".iter().chain(&uuid).map(|b| format!("{b:02x}")).collect();
+    Ok(format!("{stem}-{hex}"))
 }
 
 fn sign_path(path: &Path, o: &Options) -> Result<(), String> {
@@ -138,20 +135,35 @@ fn sign_path(path: &Path, o: &Options) -> Result<(), String> {
 
     let (exe_path, identifier, info, code_resources) = if let Some(b) = bundle(path) {
         let exe = b.executable.clone().ok_or_else(|| format!("{}: bundle has no CFBundleExecutable", path.display()))?;
-        let entries = resources::collect(&b.root, Some(&exe), &nested_code).map_err(|e| e.to_string())?;
+        let entries = resources::collect(&b.root, Some(&exe)).map_err(|e| e.to_string())?;
         let seal = cf::xml::to_bytes(&resources::build(&entries).map_err(|e| e.to_string())?);
         let dir = b.root.join("_CodeSignature");
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         std::fs::write(dir.join("CodeResources"), &seal).map_err(|e| e.to_string())?;
         let info = std::fs::read(&b.info_path).map_err(|e| e.to_string())?;
         let identifier = o.identifier.clone().or(b.identifier).unwrap_or_else(|| default_identifier(path));
-        (b.root.join(exe), identifier, Some(info), Some(seal))
+        (b.root.join(exe), Some(identifier), Some(info), Some(seal))
     } else {
-        (path.to_path_buf(), o.identifier.clone().unwrap_or_else(|| default_identifier(path)), None, None)
+        (path.to_path_buf(), None, None, None)
     };
 
     let data = std::fs::read(&exe_path).map_err(|e| format!("{}: {e}", exe_path.display()))?;
     let mut universal = macho::Universal::parse(data).map_err(|e| format!("{}: {e}", exe_path.display()))?;
+    // A lone Mach-O file binds the Info.plist embedded in it, if any, and is
+    // named by it.
+    let (identifier, info) = match identifier {
+        Some(i) => (i, info),
+        None => {
+            let first = universal.images()[0];
+            let embedded = first.section("__TEXT", "__info_plist").map(<[u8]>::to_vec);
+            let embedded_id = embedded.as_ref().and_then(|e| Value::parse(e).ok()).and_then(|v| v.get("CFBundleIdentifier").and_then(|i| i.as_str()).map(String::from));
+            let identifier = match o.identifier.clone().or(embedded_id) {
+                Some(i) => i,
+                None => file_identifier(path, first)?,
+            };
+            (identifier, embedded)
+        }
+    };
     for image in universal.images_mut() {
         if image.code_signature.is_some() && !o.force {
             let cd = sign::existing_code_directory(image);

@@ -1,10 +1,14 @@
 # Build environment for rules_applecross on Linux (x86_64 or arm64).
 #
+#   podman build -t rules-applecross-linux tools/linux_vm
+#
 # Holds only what the host side of a build needs: Bazel (through Bazelisk),
-# Python, a C/C++ compiler for Bazel's own helpers, and the packages the
-# ported tools are built from. Apple SDKs and tools come from an Xcode
-# mounted read-only at /Applications/Xcode.app; see run.sh.
-FROM docker.io/library/ubuntu:24.04
+# Python, a C/C++ compiler for Bazel's own helpers, the packages the ported
+# tools are built from, and Swift on PATH for repository rules that run it
+# (rules_swift_package_manager resolves packages with `swift package`); the
+# builds compile with the toolchain's own Swift. Apple SDKs and tools come
+# from an Xcode mounted read-only at /Applications/Xcode.app; see run.sh.
+FROM docker.io/library/swift:6.4-noble
 
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update -qq && apt-get install -qqy --no-install-recommends \

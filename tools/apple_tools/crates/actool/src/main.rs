@@ -9,6 +9,7 @@
 
 mod bom;
 mod car;
+mod icon;
 mod image;
 
 use cf::Value;
@@ -122,20 +123,10 @@ fn platform_name(platform: &str) -> Result<&'static str, String> {
     }
 }
 
-fn run(o: &Options) -> Result<Vec<PathBuf>, String> {
-    let out_dir = o.compile.clone().unwrap();
-    if !out_dir.is_dir() {
-        return Err(format!("The output directory \"{}\" does not exist.", out_dir.display()));
-    }
-    let platform = platform_name(&o.platform)?;
-    let devices: Vec<&str> = o.target_devices.iter().map(String::as_str).collect();
-    let phone = devices.contains(&"iphone");
-    let pad = devices.contains(&"ipad");
-    let mut outputs = Vec::new();
-
-    let icon_name = o.app_icon.clone().ok_or("a catalog without --app-icon is not supported by this actool yet")?;
-    let icon_dir = find_app_icon(&o.inputs, &icon_name)?;
-    for c in &o.inputs {
+/// The one image of an asset catalog's app icon set, and its file name.
+fn app_icon_set(catalogs: &[PathBuf], icon_name: &str) -> Result<(String, image::Rgba), String> {
+    let icon_dir = find_app_icon(catalogs, icon_name)?;
+    for c in catalogs {
         reject_other_assets(c, Some(&icon_dir))?;
     }
     let contents = read_json(&icon_dir.join("Contents.json"))?;
@@ -162,6 +153,37 @@ fn run(o: &Options) -> Result<Vec<PathBuf>, String> {
     if src.width != 1024 || src.height != 1024 {
         return Err(format!("{}: is {}x{} but should be 1024x1024", icon.file.display(), src.width, src.height));
     }
+    Ok((icon.filename.clone(), src))
+}
+
+fn run(o: &Options) -> Result<Vec<PathBuf>, String> {
+    let out_dir = o.compile.clone().unwrap();
+    if !out_dir.is_dir() {
+        return Err(format!("The output directory \"{}\" does not exist.", out_dir.display()));
+    }
+    let platform = platform_name(&o.platform)?;
+    let devices: Vec<&str> = o.target_devices.iter().map(String::as_str).collect();
+    let phone = devices.contains(&"iphone");
+    let pad = devices.contains(&"ipad");
+    let mut outputs = Vec::new();
+
+    let icon_name = o.app_icon.clone().ok_or("a catalog without --app-icon is not supported by this actool yet")?;
+    // An Icon Composer document is an input of its own; catalogs are the rest.
+    let is_document = |p: &PathBuf| p.extension().is_some_and(|e| e == "icon");
+    let document = o.inputs.iter().find(|p| is_document(p) && p.file_stem().is_some_and(|s| s.to_string_lossy() == icon_name));
+    let catalogs: Vec<PathBuf> = o.inputs.iter().filter(|p| !is_document(p)).cloned().collect();
+    if let Some(p) = o.inputs.iter().find(|p| is_document(p) && Some(*p) != document) {
+        return Err(format!("{}: only the app icon's own Icon Composer document is supported by this actool", p.display()));
+    }
+    let (filename, src) = match document {
+        Some(doc) => {
+            for c in &catalogs {
+                reject_other_assets(c, None)?;
+            }
+            (format!("{icon_name}1024x1024.png"), icon::render(doc)?)
+        }
+        None => app_icon_set(&catalogs, &icon_name)?,
+    };
 
     let bgra = src.to_bgra();
 
@@ -184,7 +206,7 @@ fn run(o: &Options) -> Result<Vec<PathBuf>, String> {
 
     // Assets.car: per idiom, the 1024 px image and the index of its sizes.
     let id = name_identifier(&icon_name);
-    let image_csi = car::icon_image_csi(&icon.filename, 1024, 1024, &bgra.data);
+    let image_csi = car::icon_image_csi(&filename, 1024, 1024, &bgra.data);
     let multi_csi = car::multisized_csi(&icon_name, &[(1024, 1024, 1)]);
     let rendition = |idiom: u16, part: u16, dim2: u16, csi: &Vec<u8>| car::Rendition {
         attrs: vec![(car::ATTR_SCALE, 1), (car::ATTR_IDIOM, idiom), (car::ATTR_DIMENSION2, dim2), (car::ATTR_IDENTIFIER, id), (car::ATTR_ELEMENT, car::ELEMENT_ICON), (car::ATTR_PART, part)],
