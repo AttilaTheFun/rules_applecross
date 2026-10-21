@@ -174,6 +174,10 @@ typedef struct {
   //  The last byte offset to consider for a match.  In some uses it makes
   //  sense to use a smaller offset than src_end.
   lzfse_offset src_encode_end;
+  //  When nonzero, the last position at which lzfse_encode_base starts a
+  //  match; src_end then only bounds how far matches extend. (Not in the
+  //  reference: added for streaming-compatible encoding.)
+  lzfse_offset src_encode_limit;
   //  Pointer to the next byte to be written in the destination buffer.
   uint8_t *dst;
   //  Pointer to the first byte of the destination buffer.

@@ -1,22 +1,23 @@
 /*
 LZFSE encoding that matches the output of a streaming encoder fed the whole
-input at once.
+input at once, which is how CoreUI's asset compiler compresses renditions.
 
-lzfse_encode_buffer() hands lzfse_encode_base() the entire input as one window
-(below 4 GiB). A streaming encoder works in windows instead, so its long
-matches end before each window boundary and the output differs. Observed
-against such an encoder (see docs/clean-room/lzfse.md), the windows are:
+Observed against such an encoder (docs/clean-room/lzfse.md):
 
-  - the first ends at 3 * 256 KiB;
-  - each next one ends 2 * 256 KiB - 400 bytes after the previous end;
-  - before each next window the state is translated by 2 * 256 KiB, keeping
-    256 KiB of history (the maximum match distance is 262139).
+  - Windows. lzfse_encode_buffer() hands lzfse_encode_base() the whole input
+    (below 4 GiB). The streaming encoder holds at most 3 * 256 KiB. Within a
+    window that does not end the input it starts matches only up to 400
+    bytes before the data it holds, though matches may extend into those
+    bytes. It then keeps 256 KiB of history behind the position it stopped
+    at and refills, so the next window ends 512 KiB after that position.
+  - Blocks. When a match's literal run is split into pieces, a piece that
+    no longer fits the block flushes the block and continues in the next;
+    the reference reverts the whole match first.
 
-Everything else, including the small-input LZVN and raw paths, is
-lzfse_encode_buffer_with_scratch() unchanged.
-
-This file is not part of the reference distribution; the reference sources
-beside it are unmodified (lzfse e634ca58b4821d9f3d560cdc6df5dec02ffc93fd).
+The second difference lives in lzfse_encode_base.c (lzfse_push_match), the
+first here and in the src_encode_limit field of lzfse_encoder_state. Both are
+marked; the rest of the reference sources are unmodified (lzfse
+e634ca58b4821d9f3d560cdc6df5dec02ffc93fd).
 */
 
 #include "lzfse.h"
@@ -24,21 +25,23 @@ beside it are unmodified (lzfse e634ca58b4821d9f3d560cdc6df5dec02ffc93fd).
 
 #include <string.h>
 
+// Defined in lzfse_encode.c, not declared by its headers.
+size_t lzfse_encode_buffer_with_scratch(uint8_t *__restrict dst_buffer,
+                                        size_t dst_size,
+                                        const uint8_t *__restrict src_buffer,
+                                        size_t src_size,
+                                        void *__restrict scratch_buffer);
+
 #define STREAM_BLOCK ((lzfse_offset)262144)
-#define STREAM_FIRST_WINDOW (3 * STREAM_BLOCK)
-#define STREAM_ADVANCE (2 * STREAM_BLOCK)
-#define STREAM_SHORTFALL ((lzfse_offset)400)
+#define STREAM_CAPACITY (3 * STREAM_BLOCK)
+#define STREAM_LOOKAHEAD ((lzfse_offset)400)
 
 size_t lzfse_encode_stream_buffer(uint8_t *__restrict dst_buffer,
                                   size_t dst_size,
                                   const uint8_t *__restrict src_buffer,
                                   size_t src_size,
                                   void *__restrict scratch_buffer) {
-  // The stream path differs from the buffer path only once LZFSE (rather
-  // than LZVN or a raw copy) encodes more than one window.
-  if (src_size < LZFSE_ENCODE_LZVN_THRESHOLD ||
-      (lzfse_offset)src_size <= STREAM_FIRST_WINDOW ||
-      src_size >= 0xffffffffU)
+  if (src_size < LZFSE_ENCODE_LZVN_THRESHOLD || src_size >= 0xffffffffU)
     return lzfse_encode_buffer_with_scratch(dst_buffer, dst_size, src_buffer,
                                             src_size, scratch_buffer);
 
@@ -55,17 +58,20 @@ size_t lzfse_encode_stream_buffer(uint8_t *__restrict dst_buffer,
   {
     const lzfse_offset total = (lzfse_offset)src_size;
     lzfse_offset window_start = 0; // absolute offset of state->src[0]
-    lzfse_offset window_end = STREAM_FIRST_WINDOW;
-    state->src_end = window_end;
-    while (window_end < total) {
+    lzfse_offset data_end = total < STREAM_CAPACITY ? total : STREAM_CAPACITY;
+    state->src_end = data_end;
+    state->src_encode_limit = data_end < total ? data_end - STREAM_LOOKAHEAD : 0;
+    while (data_end < total) {
       if (lzfse_encode_base(state) != LZFSE_STATUS_OK)
         goto try_uncompressed;
-      lzfse_encode_translate(state, STREAM_ADVANCE);
-      window_start += STREAM_ADVANCE;
-      window_end += STREAM_ADVANCE - STREAM_SHORTFALL;
-      if (window_end > total)
-        window_end = total;
-      state->src_end = window_end - window_start;
+      lzfse_offset stop = window_start + state->src_encode_i;
+      lzfse_offset new_start = stop - STREAM_BLOCK;
+      lzfse_encode_translate(state, new_start - window_start);
+      window_start = new_start;
+      data_end = stop + 2 * STREAM_BLOCK < total ? stop + 2 * STREAM_BLOCK : total;
+      state->src_end = data_end - window_start;
+      state->src_encode_limit =
+          data_end < total ? data_end - STREAM_LOOKAHEAD - window_start : 0;
     }
   }
   if (lzfse_encode_base(state) != LZFSE_STATUS_OK)

@@ -467,66 +467,41 @@ static inline int lzfse_push_lmd(lzfse_encoder_state *s, uint32_t L,
  * @return LZFSE_STATUS_OK if OK.
  * @return LZFSE_STATUS_DST_FULL if the match can't be pushed, meaning one of the
  * buffers is full. In that case the state is not modified. */
+static int lzfse_encode_matches(lzfse_encoder_state *s);
+
+/*! Push one L,M,D part, emitting the block first when the state is full.
+ *  (Streaming-compatible variant: parts already pushed are kept.) */
+static int lzfse_push_lmd_flushing(lzfse_encoder_state *s, uint32_t L,
+                                   uint32_t M, uint32_t D) {
+  if (lzfse_push_lmd(s, L, M, D) == LZFSE_STATUS_OK)
+    return LZFSE_STATUS_OK;
+  if (lzfse_encode_matches(s) != LZFSE_STATUS_OK)
+    return LZFSE_STATUS_DST_FULL;
+  return lzfse_push_lmd(s, L, M, D);
+}
+
 static int lzfse_push_match(lzfse_encoder_state *s, const lzfse_match *match) {
-  // Save the initial n_matches, n_literals, src_literal
-  uint32_t n_matches0 = s->n_matches;
-  uint32_t n_literals0 = s->n_literals;
-  lzfse_offset src_literals0 = s->src_literal;
-
-  // L,M,D
-  uint32_t L = (uint32_t)(match->pos - s->src_literal); // literal count
-  uint32_t M = match->length;                           // match length
-  uint32_t D = (uint32_t)(match->pos - match->ref);     // match distance
-  int ok = 1;
-
-  // Split L if too large
+  uint32_t L = (uint32_t)(match->pos - s->src_literal);
+  uint32_t M = match->length;
+  uint32_t D = (uint32_t)(match->pos - match->ref);
   while (L > LZFSE_ENCODE_MAX_L_VALUE) {
-    if (lzfse_push_lmd(s, LZFSE_ENCODE_MAX_L_VALUE, 0, 1) != 0) {
-      ok = 0;
-      goto END;
-    } // take D=1 because most frequent, but not actually used
+    if (lzfse_push_lmd_flushing(s, LZFSE_ENCODE_MAX_L_VALUE, 0, 1) != 0)
+      return LZFSE_STATUS_DST_FULL;
     L -= LZFSE_ENCODE_MAX_L_VALUE;
   }
-
-  // Split if M too large
   while (M > LZFSE_ENCODE_MAX_M_VALUE) {
-    if (lzfse_push_lmd(s, L, LZFSE_ENCODE_MAX_M_VALUE, D) != 0) {
-      ok = 0;
-      goto END;
-    }
+    if (lzfse_push_lmd_flushing(s, L, LZFSE_ENCODE_MAX_M_VALUE, D) != 0)
+      return LZFSE_STATUS_DST_FULL;
     L = 0;
     M -= LZFSE_ENCODE_MAX_M_VALUE;
   }
-
-  // L,M in range
   if (L > 0 || M > 0) {
-    if (lzfse_push_lmd(s, L, M, D) != 0) {
-      ok = 0;
-      goto END;
-    }
-    L = M = 0;
-    (void)L;
-    (void)M; // dead stores
+    if (lzfse_push_lmd_flushing(s, L, M, D) != 0)
+      return LZFSE_STATUS_DST_FULL;
   }
-
-END:
-  if (!ok) {
-    // Revert state
-    s->n_matches = n_matches0;
-    s->n_literals = n_literals0;
-    s->src_literal = src_literals0;
-
-    return LZFSE_STATUS_DST_FULL; // state tables full
-  }
-
-  return LZFSE_STATUS_OK; // OK
+  return LZFSE_STATUS_OK;
 }
 
-/*! @abstract Backend: add MATCH to state S. Encode block if necessary, when
- * state is full.
- * @return LZFSE_STATUS_OK if OK.
- * @return LZFSE_STATUS_DST_FULL if the match can't be added, meaning one of the
- * buffers is full. In that case the state is not modified. */
 static int lzfse_backend_match(lzfse_encoder_state *s,
                                const lzfse_match *match) {
   // Try to push the match in state
@@ -650,7 +625,7 @@ int lzfse_encode_base(lzfse_encoder_state *s) {
   memset(&newH, 0x00, sizeof(newH));
 
   // 8 byte padding at end of buffer
-  s->src_encode_end = s->src_end - 8;
+  s->src_encode_end = s->src_encode_limit ? s->src_encode_limit : s->src_end - 8;
   for (; s->src_encode_i < s->src_encode_end; s->src_encode_i++) {
     lzfse_offset pos = s->src_encode_i; // pos >= 0
 
