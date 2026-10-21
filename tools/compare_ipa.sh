@@ -14,7 +14,6 @@ TARGET="${1:-//examples/ios/CleanRoom:CleanRoom}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/.compare"
 FLAGS=(
-  --@rules_applecross//toolchain:linker=lld
   --ios_multi_cpus=arm64
   --ios_signing_cert_name=-
   -c opt

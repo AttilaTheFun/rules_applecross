@@ -37,9 +37,10 @@ limits of what is reproduced:
 devices) on the Mac with Xcode's tools and in the Linux VM with these, and
 compares the two `.ipa` files. They are identical, byte for byte.
 
-`tools/linux_vm/build-visor.sh` clones Logan's Visor app in the Linux VM and
-builds it there (an Icon Composer icon, SwiftUI with `@State`, Swift
-packages, a widget extension). The result runs in the iOS 18.4 and 27.0
+`tools/linux_vm/build-visor.sh` clones
+[Visor](https://github.com/AttilaTheFun/visor) in the Linux VM and builds it
+there (an Icon Composer icon, SwiftUI with `@State`, Swift packages, a widget
+extension). The result runs in the iOS 18.4 and 27.0
 simulators; how it compares with Visor's Xcode build is in
 [../consumers.md](../consumers.md#what-differs-from-an-xcode-build).
 

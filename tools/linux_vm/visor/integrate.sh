@@ -1,5 +1,5 @@
 #!/bin/bash
-# Adds rules_applecross to a checkout of Logan's visor, from its root inside
+# Adds rules_applecross to a checkout of Visor, from its root inside
 # the build container: the module's overrides and toolchains, the Linux
 # settings in .bazelrc.user, and the ported tools archive.
 #
@@ -104,10 +104,6 @@ common --enable_platform_specific_config
 common:linux --repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
 common:linux --incompatible_repo_env_ignores_action_env
 build:linux --xcode_version_config=@apple_cross_toolchain//:host_xcodes
-# LLVM's linker: the ld64 port ignores the SDK's per-symbol \$ld\$previous\$
-# entries, binding Span's symbols to libswiftCore instead of
-# libswiftCompatibilitySpan for deployment targets before iOS 26.
-build:linux --@rules_applecross//toolchain:linker=lld
 build:linux --@rules_apple//apple:sdk_tool_files=@apple_cross_toolchain//:sdk_tool_files
 build:linux --action_env=DEVELOPER_DIR=$TC
 build:linux --action_env=PATH=$TC/Toolchains/XcodeDefault.xctoolchain/usr/bin:/bin:/usr/bin:/usr/local/bin

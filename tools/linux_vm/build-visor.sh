@@ -1,5 +1,5 @@
 #!/bin/bash
-# Clones Logan's visor inside the Linux VM, adds rules_applecross to it and
+# Clones Visor (github.com/AttilaTheFun/visor) inside the Linux VM, adds rules_applecross to it and
 # builds the iOS app there for the arm64 simulator (a device build needs the
 # team's provisioning profiles, which only the Mac has).
 #

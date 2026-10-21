@@ -2,8 +2,8 @@
 
 What a root module needs beyond the [Setup](../README.md#setup) steps to build
 its Apple apps on Linux with the clean-room tools, as established by building
-Logan's Visor app (`tools/linux_vm/build-visor.sh`, which applies all of it
-through `tools/linux_vm/visor/integrate.sh`).
+[Visor](https://github.com/AttilaTheFun/visor) (`tools/linux_vm/build-visor.sh`,
+which applies all of it through `tools/linux_vm/visor/integrate.sh`).
 
 ## Overrides only the root module can make
 
@@ -38,7 +38,7 @@ the root module's workspace: copy `ported-tools-linux-<arch>.tar.xz` there.
 
 ## .bazelrc
 
-The Setup's settings, for Linux hosts only, plus the linker:
+The Setup's settings, for Linux hosts only:
 
 ```
 startup --host_jvm_args=-DBAZEL_TRACK_SOURCE_DIRECTORIES=1
@@ -46,7 +46,6 @@ common --enable_platform_specific_config
 common:linux --repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
 common:linux --incompatible_repo_env_ignores_action_env
 build:linux --xcode_version_config=@apple_cross_toolchain//:host_xcodes
-build:linux --@rules_applecross//toolchain:linker=lld
 build:linux --@rules_apple//apple:sdk_tool_files=@apple_cross_toolchain//:sdk_tool_files
 build:linux --action_env=DEVELOPER_DIR=external/rules_applecross++apple_cross_toolchain+apple_cross_toolchain/Xcode.app/Contents/Developer
 build:linux --action_env=PATH=external/rules_applecross++apple_cross_toolchain+apple_cross_toolchain/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin:/bin:/usr/bin:/usr/local/bin
@@ -54,12 +53,6 @@ build:linux --action_env=PATH=external/rules_applecross++apple_cross_toolchain+a
 
 The canonical repository name in the two paths is the one Bazel gives the
 extension's repository when rules_applecross is a dependency.
-
-Use LLVM's linker. The ported ld64 ignores the per-symbol `$ld$previous$`
-entries in the SDK's `libswiftCore.tbd`, which move `Span`'s symbols to
-`@rpath/libswiftCompatibilitySpan.dylib` for deployment targets before the 26
-releases. An app linked with it binds them to `libswiftCore` and cannot load
-on iOS 18.
 
 ## Swift packages
 

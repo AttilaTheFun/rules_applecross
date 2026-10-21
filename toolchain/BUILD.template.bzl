@@ -669,15 +669,6 @@ dynamic_toolchain_info(
     visibility = ["//visibility:private"],
 )
 
-cc_args(
-    name = "applecross_lld",
-    actions = [
-        "@rules_cc//cc/toolchains/actions:link_actions",
-        "@rules_cc//cc/toolchains/actions:objc_executable",
-    ],
-    args = ["-fuse-ld=lld"],
-)
-
 [
     rule_based_cc_toolchain(
         name = "cc-compiler-" + arch,
@@ -689,10 +680,7 @@ cc_args(
             ":applecross_sysroot_" + arch,
             ":applecross_platform_link_paths_" + arch,
             "@apple_support//toolchain:xcode_env",
-        ] + select({
-            "@rules_applecross//toolchain:linker_lld": [":applecross_lld"],
-            "//conditions:default": [],
-        }),
+        ],
         artifact_name_patterns = ["@apple_support//toolchain:dylib_pattern"],
         compiler = "clang",
         enabled_features = APPLE_SUPPORT_ENABLED_FEATURES,
@@ -790,10 +778,9 @@ _SWIFT_TOOLS_MACOS = "%{swift_tools_macos}"
 # C, C++ and Objective-C toolchains for Apple targets on a macOS execution
 # platform, from the same LLVM release as the Linux ones (staged at
 # macos_toolchain/ on macOS hosts) rather than Xcode's clang and ld, so that
-# compiles and links on a Mac produce what Linux produces. They always link
-# with ld64.lld; select it on Linux too (--@rules_applecross//toolchain:linker=lld)
-# for matching output. Apple's tools (actool, ibtool, codesign) still run from
-# the Mac's Xcode.
+# compiles and links on a Mac produce what Linux produces, linking with
+# ld64.lld as Linux does. Apple's tools (actool, ibtool, codesign) still run
+# from the Mac's Xcode.
 _MACOS_BIN = "macos_toolchain/usr/bin"
 _MACOS_LIB = "macos_toolchain/usr/lib"
 
@@ -943,7 +930,6 @@ cc_tool_map(
             ":applecross_apple_clang_compat",
             ":applecross_sysroot_" + arch + "_macos",
             ":applecross_platform_link_paths_" + arch,
-            ":applecross_lld",
         ],
         artifact_name_patterns = ["@apple_support//toolchain:dylib_pattern"],
         compiler = "clang",
