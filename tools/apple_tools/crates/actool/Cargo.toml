@@ -1,0 +1,12 @@
+[package]
+name = "actool"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "actool"
+path = "src/main.rs"
+
+[dependencies]
+cf.workspace = true

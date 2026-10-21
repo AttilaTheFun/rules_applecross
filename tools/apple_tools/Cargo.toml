@@ -1,0 +1,28 @@
+# Clean-room Linux implementations of the Apple build tools rules_apple runs:
+# actool, ibtool and codesign. They are written from the tools' command lines,
+# Apple's documentation, and the files the real tools produce; docs/clean-room
+# records what was observed and how each behaviour was established.
+[workspace]
+resolver = "2"
+members = [
+    "crates/actool",
+    "crates/cf",
+    "crates/codesign",
+    "crates/ibtool",
+    "crates/lzfse",
+    "crates/macho",
+]
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+version = "0.1.0"
+
+[workspace.dependencies]
+cf = { path = "crates/cf" }
+lzfse = { path = "crates/lzfse" }
+macho = { path = "crates/macho" }
+
+[profile.release]
+codegen-units = 1
+lto = true

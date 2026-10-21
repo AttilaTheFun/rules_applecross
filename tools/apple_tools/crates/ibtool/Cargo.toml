@@ -1,0 +1,12 @@
+[package]
+name = "ibtool"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "ibtool"
+path = "src/main.rs"
+
+[dependencies]
+cf.workspace = true
