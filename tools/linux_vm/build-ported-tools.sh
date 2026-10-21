@@ -1,15 +1,14 @@
 #!/bin/bash
-# Build the ported Apple tools for this Linux host's architecture.
-#
-# The same tools, at the same revisions, as apple-cross-toolchain/ci's
-# tools/build.sh, which only publishes x86_64. Run inside the build container
-# (tools/linux_vm/run.sh, whose image already has the build dependencies):
+# Builds the ported Apple tools for this Linux host's CPU with this
+# repository's clean-room tools in them. Run inside the build container
+# (tools/linux_vm/run.sh, whose image has the build dependencies):
 #
 #   tools/linux_vm/run.sh tools/linux_vm/build-ported-tools.sh
 #
-# Writes ported-tools-linux-<arch>.tar.xz to the workspace root. With
-# --apple-tools-only, rebuilds only this repository's clean-room tools into
-# the archive already there.
+# Builds tools/build-ported-tools.sh's archive (the ported cctools, ld64,
+# libtapi and xcbuild, ported-tools-linux-<arch>.tar.xz in the workspace
+# root), then adds the clean-room tools to it. With --apple-tools-only, adds
+# them to the archive already there instead.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -18,37 +17,12 @@ WORK="$(mktemp -d)"
 OUT="$WORK/out"
 trap 'rm -rf "$WORK"' EXIT
 archive="$ROOT/ported-tools-linux-$ARCH.tar.xz"
-mkdir -p "$OUT/lib" "$OUT/bin"
-cd "$WORK"
+mkdir -p "$OUT"
 
-# The tools ported from Apple's open-source releases.
-build_ported() {
-  git clone -q https://github.com/apple-cross-toolchain/xcbuild-rust.git
-  (cd xcbuild-rust && git checkout -q aeef77013f26d89d7b19247ccc3f74b6bdb29929 \
-    && cargo build -q --release \
-    && find target/release -maxdepth 1 -type f -executable -exec cp {} "$OUT/bin" \;)
-
-  curl -fsSL https://sourceforge.net/projects/pmt/files/pngcrush/1.8.13/pngcrush-1.8.13.tar.gz/download -o pngcrush.tar.gz
-  tar -xf pngcrush.tar.gz
-  (cd pngcrush-1.8.13 && make -s -j"$(nproc)" && mv pngcrush "$OUT/bin")
-
-  git clone -q https://github.com/tpoechtrager/apple-libtapi.git
-  (cd apple-libtapi && git checkout -q 664b8414f89612f2dfd35a9b679c345aa5389026 \
-    && INSTALLPREFIX="$OUT" ./build.sh >/dev/null && ./install.sh >/dev/null)
-
-  git clone -q https://github.com/tpoechtrager/cctools-port.git
-  (cd cctools-port/cctools && git checkout -q faa1f24cb7e31be132f98f503cc447c90ce2fd87 \
-    && ./configure -q --prefix="$OUT" --with-libtapi="$OUT" \
-    && make -s -j"$(nproc)" && make -s install)
-  patchelf --set-rpath '$ORIGIN/../lib' "$OUT/bin/ld"
-  rm -f "$OUT/bin/dsymutil" "$OUT/bin/nm"
-}
-
-if [ "${1:-}" = --apple-tools-only ]; then
-  tar -C "$OUT" -xf "$archive"
-else
-  build_ported
+if [ "${1:-}" != --apple-tools-only ]; then
+  "$ROOT/tools/build-ported-tools.sh"
 fi
+tar -C "$OUT" -xf "$archive"
 
 # The clean-room tools in this repository, replacing xcbuild's partial actool
 # and the codesign, ibtool and swift-stdlib-tool placeholders. The marker
