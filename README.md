@@ -84,9 +84,8 @@ apple_cross_toolchain.configure(
     bazel build @rules_applecross//examples/ios/HelloWorldSwiftUI:HelloWorld
     ```
 
-A module building its own apps on Linux with the clean-room Apple tools
-needs more than this: overrides only a root module can make, the Linux
-settings, and a few caveats. See [docs/consumers.md](docs/consumers.md).
+A module building its own apps on Linux with the clean-room Apple tools needs a
+few more settings and caveats; see [docs/consumers.md](docs/consumers.md).
 
 ## Notes
 

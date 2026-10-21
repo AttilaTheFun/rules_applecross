@@ -7,20 +7,13 @@ through `tools/linux_vm/visor/integrate.sh`).
 
 ## Overrides only the root module can make
 
-rules_applecross patches rules_apple, apple_support and rules_swift in its own
-`MODULE.bazel`, but Bazel applies only the root module's overrides. Copy
-`patches/` into the root module and repeat them:
-
-- `rules_apple` 5.2.0 with the five `rules_apple_*.patch` files (after any
-  patches of the root's own);
-- `apple_support` 2.8.4 with `apple_support_bazel8_xcode_properties.patch`;
-- `rules_swift` 4.2.0 or later, or an earlier version with
-  `rules_swift_worker_copy_overwrite.patch`. Without it the Swift worker fails
-  every incremental rebuild with `Could not copy ... (File exists)`; upstream
-  fixed this in 4.2.0 (#1905). Visor uses rules_swift 4.1.0.isomer.2 from its
-  registry, which carries the patch, and pins it with a
-  `single_version_override`: rules_applecross asks for 4.1.2, which would
-  otherwise be chosen.
+Repeat this repository's `rules_apple` and `apple_support` overrides and copy
+`patches/`, as the [Setup](../README.md#setup) says. Before rules_swift 4.2.0
+the Swift worker fails incremental rebuilds on Linux with `Could not copy ...
+(File exists)` (fixed by rules_swift#1905), so use 4.2.0 or later. Visor pins
+4.1.0.isomer.2 from its own registry, which carries a backport, with a
+`single_version_override`, because rules_applecross asks for 4.2.2, which
+would otherwise be chosen.
 
 ## Toolchains
 
@@ -45,7 +38,10 @@ the root module's workspace: copy `ported-tools-linux-<arch>.tar.xz` there.
 
 ## .bazelrc
 
+The Setup's settings, for Linux hosts only, plus the linker:
+
 ```
+startup --host_jvm_args=-DBAZEL_TRACK_SOURCE_DIRECTORIES=1
 common --enable_platform_specific_config
 common:linux --repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
 common:linux --incompatible_repo_env_ignores_action_env

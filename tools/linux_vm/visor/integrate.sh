@@ -24,15 +24,14 @@ import sys
 path, commit = sys.argv[1], sys.argv[2]
 p = "MODULE.bazel"
 s = open(p).read()
-# rules_swift 4.1.0.isomer.2 carries the Swift worker fix the Linux build
-# needs (rules_applecross's patches/rules_swift_worker_copy_overwrite.patch);
-# visor#124 moves visor to it.
+# rules_swift 4.1.0.isomer.2 carries a backport of the Swift worker fix the
+# Linux build needs (upstream fixed it in 4.2.0); visor#124 moves visor to it.
 s = s.replace('''bazel_dep(name = "rules_swift", version = "4.1.0.isomer.1")''',
               '''bazel_dep(name = "rules_swift", version = "4.1.0.isomer.2")''')
 assert '''bazel_dep(name = "rules_swift", version = "4.1.0.isomer.2")''' in s
 old_apple = '''bazel_dep(name = "rules_apple", version = "5.1.0")'''
 assert old_apple in s
-s = s.replace(old_apple, '''bazel_dep(name = "rules_apple", version = "5.2.0")''')
+s = s.replace(old_apple, '''bazel_dep(name = "rules_apple", version = "5.3.1")''')
 old = '''    patches = ["//third_party/patches:rules_apple_device_xctrunner.patch"],
 )'''
 assert old in s
@@ -43,8 +42,10 @@ s = s.replace(old, '''    patches = [
         "//third_party/patches/applecross:rules_apple_no_absolute_tool_paths.patch",
         "//third_party/patches/applecross:rules_apple_codesign_inputs_sdk_tools.patch",
         "//third_party/patches/applecross:rules_apple_python_stub_interpreter.patch",
+        "//third_party/patches/applecross:rules_apple_alticonstool_missing_icons.patch",
+        "//third_party/patches/applecross:rules_apple_dossier_zipfile.patch",
     ],
-    version = "5.2.0",
+    version = "5.3.1",
 )''')
 if path:
     override = 'local_path_override(\n    module_name = "rules_applecross",\n    path = "%s",\n)' % path
@@ -60,10 +61,10 @@ single_version_override(
     module_name = "apple_support",
     patch_strip = 1,
     patches = ["//third_party/patches/applecross:apple_support_bazel8_xcode_properties.patch"],
-    version = "2.8.4",
+    version = "2.10.1",
 )
 
-# rules_applecross asks for rules_swift 4.1.2, which would otherwise win over
+# rules_applecross asks for rules_swift 4.2.2, which would otherwise win over
 # visor's 4.1.0.isomer.2 (isomer's patches and the worker fix).
 single_version_override(
     module_name = "rules_swift",
@@ -98,6 +99,7 @@ echo "exports_files(glob([\"*.patch\"]))" > third_party/patches/applecross/BUILD
 TC=external/rules_applecross++apple_cross_toolchain+apple_cross_toolchain/Xcode.app/Contents/Developer
 cat > .bazelrc.user <<RC
 # rules_applecross on Linux.
+startup --host_jvm_args=-DBAZEL_TRACK_SOURCE_DIRECTORIES=1
 common --enable_platform_specific_config
 common:linux --repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
 common:linux --incompatible_repo_env_ignores_action_env
